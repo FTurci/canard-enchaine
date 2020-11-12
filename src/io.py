@@ -31,6 +31,41 @@ class Centres(PointCloud):
 		super(Centres,self).__init__(filename)
 
 		self.radius = self.data[:,3]
+		self.tree = cKDTree(self.coord)
+
+	def get_gr(self,dr=1.0,rmax=100, factor=3):
+		r = np.arange(dr,rmax,dr)
+		c=self.coord
+		self.tree = cKDTree(c)
+		nb = self.tree.count_neighbors(self.tree,r, cumulative=False)
+		# print(nb[0])
+		nb[0] = 0 # ignore self-distances
+		# V = np.prod(self.coord.ptp(axis=0))
+		N  = c.shape[0]
+
+		# ideal gas
+		
+		accumulate = np.zeros_like(nb,dtype=float)
+		
+		ideal = np.random.uniform(self.coord.min(axis=0), self.coord.max(axis=0)*factor,size=(N*factor**3,3))
+		ideal_tree = cKDTree(ideal)
+		accumulate = np.array(ideal_tree.count_neighbors(ideal_tree,r, cumulative=False))/factor**3
+		# accumulate-= accumulate[0]
+		# print(accumulate,repeat)
+		# accumulate[0]=1
+		# g = nb/(4*np.pi*r**2*dr)*V/(N*(N-1))
+		g = nb/accumulate 
+		gr={}
+		gr['r'] = r
+		gr['g'] = g
+		gr['dr'] = dr
+		gr['rmax'] = rmax
+		gr['ideal'] = accumulate
+		gr['nb'] = nb
+		# plt.plot(r,nb)
+		# plt.plot(r,accumulate, '.')
+		# gr['V'] = V
+		self.gr = gr
 	
 	def get_stress_info(self, stress_path,rcut=28):
 		self.stress_path = stress_path
@@ -40,7 +75,7 @@ class Centres(PointCloud):
 		self.aniso = self.major-self.minor
 		self.pkl = pickle.load(open(stress_path+'stress_tensor.pkl', 'rb')) # 
 		# filter only centres with more than one ontact
-		self.tree = cKDTree(self.coord)
+		
 		self.neighs = self.tree.query_ball_tree(self.tree,rcut)
 		self.coordination = np.array([len(n)-1 for n in self.neighs])
 		# retain only the points with at least 2 neighbours
@@ -86,26 +121,104 @@ class Centres(PointCloud):
 
 		ipv.show()
 
-	def weighted_gr(self,threshold):
-		plt.clf()
-		fig,ax= plt.subplots(1,2);
-		dr =0.25
-		r = np.arange(dr,80,dr)
+	def plot_sample_slices(self,z,quantity1,quantity2,thickness=30, feature_scaling=True):
+
+		xyz = self.stress_coord
+		# trick to get the names right
+		coordination = self.stress_coordination
+		local_trace = self.local_trace 
+		neg_local_trace = -self.local_trace 
+		local_major = self.local_major 
+		neg_local_major = -self.local_major 
+		local_minor = self.local_minor 
+		neg_local_minor = -self.local_minor 
+		
+		local_aniso = self.local_aniso 
+		trace = self.trace
+		neg_trace = -self.trace
+		major = self.major
+		neg_major = -self.major
+		minor = self.minor
+		neg_minor = -self.minor
+		aniso = self.aniso
+
+
+		select = (xyz[:,-1]>z-thickness*0.5)*(xyz[:,-1]<z+thickness*0.5)
+		XYZ = xyz[select]
+		x = XYZ[:,0]
+		y = XYZ[:,1]
+
+		q1 = quantity1[select]
+		q2 = quantity2[select]
+		# print(locals().keys())
+		q1_name = [ k for k,v in locals().items() if np.all(v == quantity1)][0]
+		q2_name = [ k for k,v in locals().items() if np.all(v == quantity2)][0]
+		if feature_scaling :
+			q1 = (q1-q1.mean())/q1.std()
+			q2 = (q2-q2.mean())/q2.std()
+			vmin = -2
+			vmax = 2
+		else:
+			vmin = vmax= None
+
+		fig,ax = plt.subplots(1,3, figsize=(12,4))
+
+		s0 = ax[0].scatter(x,y,c=q1, vmin=vmin,vmax=vmax,edgecolor='k')
+		s1 = ax[1].scatter(x,y,c=q2, vmin=vmin,vmax=vmax,edgecolor='k')
+		ax[0].set_title(q1_name)
+		ax[1].set_title(q2_name)
+		ax[0].axis('equal')
+		ax[1].axis('equal')
+		fig.colorbar(s0,ax=ax[0])
+		fig.colorbar(s1,ax=ax[1])
+
+		ax[2].hist2d(q1,q2)
+		ax[2].set_xlabel(q1_name)
+		ax[2].set_ylabel(q2_name)
+		
+		fig.tight_layout(rect=[0, 0.03, 1, 0.95])
+		fig.suptitle(f'Slice z={z} of thickness {thickness}',y=1.05)
+
+
+	def get_masked_gr(self,quantity,threshold):
+		if hasattr(self,'gr')==False:
+			self.get_gr()
+
+		r = self.gr['r']
+		dr = self.gr['dr']
 		coord = self.stress_coord
-		valid = self.trace<=threshold
-		wcentre_tree = cKDTree(coord[valid])
-		weight = self.trace[self.trace<=threshold]
-		wnb = wcentre_tree.count_neighbors(wcentre_tree,r, cumulative=False, weights=weight)#<=threshold)
-		V = np.prod(coord.ptp(axis=0))
-		N  = len(self.trace[valid])
+		valid = quantity<=threshold
+
+		mask_tree = cKDTree(coord[valid])
+		mask_nb = mask_tree.count_neighbors(mask_tree,r, cumulative=False)#<=threshold)
+		N  = len(quantity[valid])
+
 		assert N==coord[valid].shape[0],f"Mismatching N: {N} {coord[valid].shape}"
-		gw = wnb/(4*np.pi*r**2*dr)*V/(N*(N-1))
-		gw[0] = 0
-		ax[0].plot(r,gw/gw[-1]); 
-		ax[1].hist(self.trace[valid],bins=32);
-		ax[0].set_xlabel('r [pixels]'); 
-		ax[0].set_ylabel(r'$g(r)$');
-		ax[1].set_yscale('log');
+
+		accumulate = np.zeros_like(mask_nb,dtype=float)
+
+		# for k in range(repeat):
+		if N>5000:
+			factor = 1
+			ideal = np.random.uniform(self.stress_coord[valid].min(axis=0), self.stress_coord[valid].max(axis=0),size=(N,3))
+		else:
+			factor = 3
+			ideal = np.random.uniform(self.stress_coord[valid].min(axis=0), self.stress_coord[valid].max(axis=0)*factor,size=(N*factor**3,3))
+		ideal_tree = cKDTree(ideal)
+		accumulate = np.array(ideal_tree.count_neighbors(ideal_tree,r, cumulative=False))/factor**3
+		
+		# accumulate /= repeat
+		# g = nb/(4*np.pi*r**2*dr)*V/(N*(N-1))
+		masked_g = mask_nb/accumulate 
+		
+
+		# masked_g = mask_nb/(4*np.pi*r**2*dr)*V/(N*(N-1))
+		masked_g[0] = 0
+		masked_gr = {}
+		masked_gr['r'] = r
+		masked_gr['g'] = masked_g
+		masked_gr['dr'] = dr
+		return masked_gr
 
 	def pearsonr_coordination_z_slice(self,z,quantity, thickness=30, markersize=80, plot=False, ax=None,row=None):
 
