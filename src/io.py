@@ -121,7 +121,7 @@ class Centres(PointCloud):
 
 		ipv.show()
 
-	def plot_sample_slices(self,z,quantity1,quantity2,thickness=30, feature_scaling=True):
+	def plot_sample_slices(self,z,quantity1,quantity2,thickness=30, feature_scaling=True,border=None):
 
 		xyz = self.stress_coord
 		# trick to get the names right
@@ -172,12 +172,21 @@ class Centres(PointCloud):
 		fig.colorbar(s0,ax=ax[0])
 		fig.colorbar(s1,ax=ax[1])
 
-		ax[2].hist2d(q1,q2)
+
+		if border==None:
+			select_q1 = q1
+			select_q2 = q2
+		else:
+			valid = (x>x.min()+border)*(x<x.max()-border)*(y>y.min()+border)*(y<y.max()-border)
+			select_q1 = q1[valid]
+			select_q2 = q2[valid]
+		ax[2].hist2d(select_q1,select_q2)
 		ax[2].set_xlabel(q1_name)
 		ax[2].set_ylabel(q2_name)
+		pearsonr = scipy.stats.pearsonr(select_q1,select_q2)[0]
+		ax[2].set_title(f'Pearson r={pearsonr:.2f}')
 		
-		fig.tight_layout(rect=[0, 0.03, 1, 0.95])
-		fig.suptitle(f'Slice z={z} of thickness {thickness}',y=1.05)
+		fig.suptitle(f'Slice z={z:.1f} of thickness {thickness}',y=1.05)
 
 
 	def get_masked_gr(self,quantity,threshold):
