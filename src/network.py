@@ -6,9 +6,12 @@ import matplotlib.pyplot as plt
 
 class ContactNetwork(object):
     """Construct network of contacts from centres and contacts"""
-    def __init__(self, centers,contacts, rcut=None, threshold_vol=None, percentile=90):
+    def __init__(self, centres,contacts, rcut=None, threshold_vol=None, percentile=90):
+        self.centres = centres
+        self.contacts = contacts
         self.contact_tree = cKDTree(contacts.coord)
-        self.centre_tree = cKDTree(centres.coord)
+        self.centre_tree = cKDTree(centres.stress_coord)
+
 
         if rcut==None:
             rcut = centres.radius.mean()*1.6
@@ -21,7 +24,7 @@ class ContactNetwork(object):
             n = np.array(n)
         #     print(i,n
             if len(n)>0:
-                dists = np.linalg.norm(centres.coord[n]-contacts.coord[i], axis=1) 
+                dists = np.linalg.norm(centres.stress_coord[n]-contacts.coord[i], axis=1) 
         #         print(n,dists,dists.argsort())
                 order = dists.argsort()[:2]
                 closest.append(n[order])
@@ -40,10 +43,10 @@ class ContactNetwork(object):
         print(" The number of contacts with no neighbouring particles is",sum(missing))
 
         self.graph = nx.Graph()
-        if threshold_vol = None:
-            threshold_vol = np.percentile(contacts.volume,percentile) #very important threshold: it decides how many edges form the network. Thousands of edges quickly become unmanegeable from the plotting point of view
+        if threshold_vol == None:
+            self.threshold_vol = np.percentile(contacts.volume,percentile) #very important threshold: it decides how many edges form the network. Thousands of edges quickly become unmanegeable from the plotting point of view
         for i,e in enumerate(closest):
-            if contacts.volume[i]>threshold_vol: 
+            if contacts.volume[i]>self.threshold_vol: 
                 if len(e)>1:
                     self.graph.add_edge(e[0],e[1])#,weight=contacts.volume[i])#, weight=contacts.volume[i])
         self.graph.number_of_edges()
@@ -55,16 +58,15 @@ class ContactNetwork(object):
         # plt.xlim(-0.25,0.25)
         # plt.ylim(-0.1,0.2)
         plt.savefig(f"figs/{G.number_of_edges()}edges.png", dpi=300)
-        
-    def export_components(self, path):
+
+    def export_components(self):
         Gcc = sorted(nx.connected_components(self.graph), key=len, reverse=True)
         N = len( np.concatenate([list(g) for g in Gcc]))
-        with open(path, 'w') as fw:
+        with open(self.centres.stress_path+f'/components_threshold{self.threshold_vol}.xyz', 'w') as fw:
             fw.write(f'{N}\nParticles\n')
             for u,d in enumerate(list(Gcc)):
                 ids = np.array(list(d))
-                transparency = cont
                 for i,ID in enumerate(ids):
-                    p = centres.coord[ID]
-                    r = centres.radius[ID]
-                    fw.write(f'Type_{u} {p[0]} {p[1]} {p[2]} {r}\n')
+                    p = self.centres.stress_coord[ID]
+                    trace = self.centres.trace[ID]
+                    fw.write(f'Type_{u} {p[0]} {p[1]} {p[2]} {trace}\n')
