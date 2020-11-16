@@ -72,6 +72,7 @@ class Centres(PointCloud):
 		self.major = np.loadtxt(stress_path+'major_stress.txt')
 		self.minor = np.loadtxt(stress_path+'minor_stress.txt')
 		self.trace = np.loadtxt(stress_path+'stress_trace.txt')
+		self.validids = np.loadtxt(stress_path+'particle_stress_index.txt').astype(int)
 		self.aniso = self.major-self.minor
 		self.pkl = pickle.load(open(stress_path+'stress_tensor.pkl', 'rb')) # 
 		# filter only centres with more than one ontact
@@ -79,9 +80,9 @@ class Centres(PointCloud):
 		self.neighs = self.tree.query_ball_tree(self.tree,rcut)
 		self.coordination = np.array([len(n)-1 for n in self.neighs])
 		# retain only the points with at least 2 neighbours
-		assert len(self.coordination[self.coordination>1])==len(self.minor),"Jun's criterion failed"
+		# assert len(self.coordination[self.coordination>1])==len(self.minor),"Jun's criterion failed"
 
-		sel = self.coordination>1
+		sel = self.validids #self.coordination>1
 		self.sel = sel
 		self.stress_coord = self.coord[sel] 
 		self.stress_coordination = self.coordination[sel]
